@@ -25,6 +25,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="text-[#787b86] hover:text-[#d1d4dc] transition-colors">
                 Search
               </Link>
+              <Link href="/compare" className="text-[#787b86] hover:text-[#d1d4dc] transition-colors">
+                Compare
+              </Link>
               <Link href="/screener" className="text-[#787b86] hover:text-[#d1d4dc] transition-colors">
                 Screener
               </Link>

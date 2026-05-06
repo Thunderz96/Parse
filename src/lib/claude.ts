@@ -47,6 +47,57 @@ Write the analyst report now. Do not use bullet points. Prose only. Keep it unde
   }
 }
 
+export async function generateComparison(a: FullPlayerData, b: FullPlayerData): Promise<string> {
+  const ai = getClient()
+  if (!ai) return generateFallbackComparison(a, b)
+
+  const fmt = (d: FullPlayerData) => {
+    const tier = d.profile.raidProgress.tiers[d.profile.raidProgress.tiers.length - 1]
+    return `${d.profile.name} (${d.profile.spec} ${d.profile.class}, ${d.profile.itemLevel} ilvl)
+  Score: ${d.score.overall}/1000 | P/E: ${d.score.pe} | Fwd P/E: ${d.score.forwardPe} | Carry: ${d.score.carryIndex}/100
+  Avg Parse: ${d.score.avgParse}th pct | M+: ${d.profile.mythicPlus.score} | Progress: ${tier?.mythicKills ?? 0}/${tier?.mythicTotal ?? 0}M
+  Verdict: ${d.score.verdict}`
+  }
+
+  const prompt = `You are a World of Warcraft analyst comparing two players like a stock analyst comparing two investments.
+Write 3-4 sentences. Be direct, opinionated, and pick a clear winner. Use financial analyst language applied to WoW.
+Call out if one player looks carried (high carry index) or overvalued (high P/E). End with a one-line RECOMMENDATION.
+
+Player A:
+${fmt(a)}
+
+Player B:
+${fmt(b)}
+
+Write the comparison now. Prose only, no bullet points, under 130 words.`
+
+  try {
+    const msg = await ai.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 350,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    return msg.content[0].type === 'text' ? msg.content[0].text : generateFallbackComparison(a, b)
+  } catch {
+    return generateFallbackComparison(a, b)
+  }
+}
+
+export function generateFallbackComparison(a: FullPlayerData, b: FullPlayerData): string {
+  const winner = a.score.overall >= b.score.overall ? a : b
+  const loser = winner === a ? b : a
+  const scoreDiff = Math.abs(a.score.overall - b.score.overall)
+  const decisive = scoreDiff > 80
+
+  const peWinner = a.score.pe <= b.score.pe ? a : b
+  const carryWinner = a.score.carryIndex <= b.score.carryIndex ? a : b
+
+  return `Head-to-head, ${winner.profile.name} (${winner.score.overall}) outscores ${loser.profile.name} (${loser.score.overall}) by ${scoreDiff} points${decisive ? ' — a decisive margin' : ''}. ` +
+    `${peWinner.profile.name} offers better value at a P/E of ${peWinner.score.pe.toFixed(2)} vs ${(peWinner === a ? b : a).score.pe.toFixed(2)}. ` +
+    `${carryWinner.profile.name} shows lower carry risk (${carryWinner.score.carryIndex} vs ${(carryWinner === a ? b : a).score.carryIndex}). ` +
+    `RECOMMENDATION: ${winner.score.verdict === 'INVITE' ? `Invite ${winner.profile.name}` : winner.score.verdict === 'BENCH' ? `Bench both — neither clears the bar` : `Decline both and keep recruiting`}.`
+}
+
 function generateFallbackSummary(data: FullPlayerData): string {
   const { profile, score } = data
   const latestTier = profile.raidProgress.tiers[profile.raidProgress.tiers.length - 1]

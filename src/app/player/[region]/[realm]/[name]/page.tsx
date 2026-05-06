@@ -124,6 +124,12 @@ export default async function PlayerPage({ params }: Props) {
               <div className="flex items-center gap-3 flex-wrap">
                 <VerdictBadge verdict={score.verdict} label={score.verdictLabel} size="sm" />
                 <WatchlistButton profile={profile} />
+                <Link
+                  href={`/compare?a=${encodeURIComponent(`${profile.name}-${profile.realm}-${profile.region}`)}`}
+                  className="flex items-center gap-1.5 text-xs bg-[#1c2030] hover:bg-[#242838] border border-[#2a2f45] rounded-lg px-3 py-1.5 text-[#787b86] hover:text-white transition-colors"
+                >
+                  ⚔ Compare
+                </Link>
                 {profile.profileUrl && (
                   <a
                     href={profile.profileUrl}

@@ -56,6 +56,13 @@ export interface ParseData {
   date: string
   amount: number
   type: 'dps' | 'hps'
+  totalKills?: number
+}
+
+export interface MechanicFlag {
+  encounter: string
+  percentile: number
+  delta: number  // how many points below the player's average
 }
 
 export interface PlayerScore {
@@ -81,6 +88,8 @@ export interface PlayerScore {
   medianParse: number
   consistency: number
   isProgressionProfile: boolean
+  mechanicScore: number
+  weakBosses: MechanicFlag[]
 }
 
 export interface HistoricalPoint {

@@ -1,4 +1,4 @@
-import { PlayerProfile, PlayerScore, HistoricalPoint } from './types'
+import { PlayerProfile, PlayerScore, HistoricalPoint, MechanicFlag, ParseData } from './types'
 import { PlayerRole, getRole } from './roles'
 
 const ILVL_PERCENTILES: Array<{ ilvl: number; pct: number }> = [
@@ -163,6 +163,7 @@ export function computeScore(
 
   const trend = changePercent > 2 ? 'up' : changePercent < -2 ? 'down' : 'neutral'
   const historicalPoints = generateHistoricalPoints(overall, previousOverall, avgParse, mplusScore)
+  const { mechanicScore, weakBosses } = computeMechanicScore(profile.logs)
 
   return {
     overall,
@@ -187,7 +188,38 @@ export function computeScore(
     medianParse: Math.round(medianParse),
     consistency: Math.round(consistencyScore),
     isProgressionProfile,
+    mechanicScore,
+    weakBosses,
   }
+}
+
+function computeMechanicScore(parses: ParseData[]): { mechanicScore: number; weakBosses: MechanicFlag[] } {
+  if (parses.length === 0) return { mechanicScore: 50, weakBosses: [] }
+
+  const percentiles = parses.map((p) => p.percentile)
+  const mean = percentiles.reduce((a, b) => a + b, 0) / percentiles.length
+
+  // Standard deviation across boss parses — high spread means inconsistent (mechanic deaths)
+  const variance = percentiles.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / percentiles.length
+  const stdDev = Math.sqrt(variance)
+
+  // Bosses where the player is performing >15 points below their average AND below 50th percentile
+  const weakBosses: MechanicFlag[] = parses
+    .filter((p) => p.percentile < mean - 15 && p.percentile < 50)
+    .sort((a, b) => a.percentile - b.percentile)
+    .slice(0, 5)
+    .map((p) => ({
+      encounter: p.encounter,
+      percentile: p.percentile,
+      delta: Math.round(mean - p.percentile),
+    }))
+
+  // Score: high stdDev and weak bosses both penalize mechanic awareness
+  const spreadPenalty = clamp(stdDev * 2)
+  const weakPenalty = weakBosses.length * 8
+  const mechanicScore = Math.round(clamp(100 - spreadPenalty - weakPenalty))
+
+  return { mechanicScore, weakBosses }
 }
 
 function estimateParseFromMplus(score: number): number {

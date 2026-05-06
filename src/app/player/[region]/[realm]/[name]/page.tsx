@@ -15,6 +15,7 @@ import VerdictBadge from '@/components/VerdictBadge'
 import AISummary from '@/components/AISummary'
 import ParseBreakdown from '@/components/ParseBreakdown'
 import WatchlistButton from '@/components/WatchlistButton'
+import MechanicPanel from '@/components/MechanicPanel'
 
 interface Props {
   params: Promise<{ region: string; realm: string; name: string }>
@@ -270,6 +271,13 @@ export default async function PlayerPage({ params }: Props) {
                 : 'Consistent independent performer'}
             </p>
           </div>
+
+          <MechanicPanel
+            mechanicScore={score.mechanicScore}
+            weakBosses={score.weakBosses}
+            avgParse={score.avgParse}
+            hasParseLogs={profile.logs.length > 0}
+          />
 
           {/* M+ Best Runs */}
           {profile.mythicPlus.bestRuns.length > 0 && (

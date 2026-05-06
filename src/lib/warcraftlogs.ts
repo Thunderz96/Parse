@@ -109,6 +109,7 @@ export async function fetchWarcraftLogs(
       date: new Date().toISOString(),
       amount: r.bestAmount ?? 0,
       type: role === 'healer' ? 'hps' : 'dps',
+      totalKills: r.totalKills ?? 0,
     }))
 
     const avg = zone?.bestPerformanceAverage ?? 0

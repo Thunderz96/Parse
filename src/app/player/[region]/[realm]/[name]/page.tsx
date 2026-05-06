@@ -81,6 +81,19 @@ export default async function PlayerPage({ params }: Props) {
         Back to search
       </Link>
 
+      {/* Progression profile notice */}
+      {score.isProgressionProfile && (
+        <div className="mb-4 flex items-start gap-3 bg-[#0d1a2e] border border-[#1e4a7a] rounded-xl px-4 py-3 text-sm text-[#7ab8f5]">
+          <span className="mt-0.5 shrink-0">ℹ</span>
+          <span>
+            <strong className="text-[#a8d4ff]">Progression profile detected.</strong>{' '}
+            M+ score significantly outpaces raid parse percentiles, which is consistent with a
+            mechanic-focused raider (soaks, interrupts, utility assignments) rather than a passenger.
+            Carry Index has been adjusted down and parse weight reduced accordingly.
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-[#131722] border border-[#2a2f45] rounded-xl p-6 mb-4">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">

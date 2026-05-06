@@ -1,7 +1,5 @@
 import { PlayerProfile, PlayerScore, HistoricalPoint } from './types'
 
-// ilvl benchmarks for TWW S2 / Midnight era content
-// These represent approximate percentile breakpoints
 const ILVL_PERCENTILES: Array<{ ilvl: number; pct: number }> = [
   { ilvl: 580, pct: 10 },
   { ilvl: 600, pct: 25 },
@@ -14,7 +12,6 @@ const ILVL_PERCENTILES: Array<{ ilvl: number; pct: number }> = [
   { ilvl: 675, pct: 99 },
 ]
 
-// Raider.IO score percentile approximations
 const MPLUS_PERCENTILES: Array<{ score: number; pct: number }> = [
   { score: 0, pct: 0 },
   { score: 500, pct: 20 },
@@ -43,7 +40,7 @@ function ilvlPercentile(ilvl: number): number {
   return interpolate(ILVL_PERCENTILES as Array<{ [k: string]: number }>, 'ilvl', 'pct', ilvl)
 }
 
-function mplusPercentile(score: number): number {
+export function mplusPercentile(score: number): number {
   return interpolate(MPLUS_PERCENTILES as Array<{ [k: string]: number }>, 'score', 'pct', score)
 }
 
@@ -58,24 +55,17 @@ export function computeScore(
 ): PlayerScore {
   const mplusScore = profile.mythicPlus.score
   const previousMplus = profile.mythicPlus.previousScore
+  const mplusPct = mplusPercentile(mplusScore)
 
-  // --- Component Scores (0-100 each) ---
-
-  // Parse score: weighted average vs median parse (avg parse more reliable)
   const hasParseLogs = avgParse > 0
   const parseScore = hasParseLogs
     ? clamp(avgParse * 0.6 + medianParse * 0.4)
     : estimateParseFromMplus(mplusScore)
 
-  // M+ score component
-  const mplusPct = mplusPercentile(mplusScore)
-
-  // Consistency: difference between avg and median parse
   const consistencyScore = hasParseLogs
     ? clamp(100 - Math.abs(avgParse - medianParse) * 1.5)
     : clamp(mplusPct * 0.8)
 
-  // Activity: based on whether they have current data and recent kills
   const latestTier = profile.raidProgress.tiers[profile.raidProgress.tiers.length - 1]
   const mythicKills = latestTier?.mythicKills ?? 0
   const mythicTotal = latestTier?.mythicTotal ?? 8
@@ -83,10 +73,15 @@ export function computeScore(
     Math.min(100, (mythicKills / Math.max(mythicTotal, 1)) * 50 + (mplusScore > 0 ? 50 : 0))
   )
 
-  // Weighted Overall Score (0-1000)
-  const parseWeight = hasParseLogs ? 0.40 : 0.20
-  const mplusWeight = hasParseLogs ? 0.35 : 0.50
-  const consistencyWeight = hasParseLogs ? 0.15 : 0.15
+  // When a player has strong M+ but lower raid parses, shift weight toward M+.
+  // M+ is harder to fake — it's a better individual skill signal for progression raiders
+  // who are assigned to handle mechanics rather than optimize DPS.
+  const parseVsMplusGap = hasParseLogs ? Math.max(0, mplusPct - parseScore) : 0
+  const isProgressionProfile = parseVsMplusGap > 20 // M+ notably outpaces raid parses
+
+  const parseWeight = hasParseLogs ? (isProgressionProfile ? 0.25 : 0.40) : 0.20
+  const mplusWeight = hasParseLogs ? (isProgressionProfile ? 0.50 : 0.35) : 0.50
+  const consistencyWeight = 0.15
   const activityWeight = 0.10
 
   const rawScore =
@@ -97,62 +92,71 @@ export function computeScore(
 
   const overall = Math.round(rawScore * 10)
 
-  // Previous overall (estimate from previous M+ season)
   const prevMplusPct = mplusPercentile(previousMplus)
   const prevRaw = parseScore * parseWeight + prevMplusPct * mplusWeight + consistencyScore * consistencyWeight + activityScore * activityWeight
   const previousOverall = Math.round(prevRaw * 10)
   const changePercent = previousOverall > 0 ? ((overall - previousOverall) / previousOverall) * 100 : 0
 
   // --- P/E Ratio ---
-  // Price = how "expensive" they look on paper (ilvl percentile)
-  // Earnings = actual performance
   const ilvlPct = ilvlPercentile(profile.itemLevel)
+  // Use the better of (raid parses, M+) as the earnings figure so a progression
+  // raider with high M+ isn't punished for mechanic-focused raid assignments.
   const effectivePerformance = hasParseLogs
-    ? (avgParse * 0.7 + mplusPct * 0.3)
+    ? Math.max(avgParse * 0.7 + mplusPct * 0.3, mplusPct * 0.8)
     : mplusPct
 
-  // PE > 1 = overvalued (has gear, doesn't perform)
-  // PE < 1 = undervalued (performs beyond gear)
   const pe = effectivePerformance > 0
     ? Math.round((ilvlPct / effectivePerformance) * 100) / 100
     : 99.99
 
-  // Forward PE: trend extrapolation
-  const improvementRate = mplusScore > previousMplus
-    ? (mplusScore - previousMplus) / Math.max(previousMplus, 1)
-    : (mplusScore - previousMplus) / Math.max(previousMplus, 1)
+  const improvementRate = (mplusScore - previousMplus) / Math.max(previousMplus, 1)
   const forwardPe = Math.round(pe * (1 - improvementRate * 0.5) * 100) / 100
 
   // --- Carry Index (0-100) ---
-  // High mythic kills + low parses = carried
+  // Core signal: high kill count + poor performance = carried.
+  // However, M+ score acts as a hard skill floor:
+  //   - A player doing high M+ clearly has mechanical ability; low raid parses
+  //     likely reflect role assignment (soaks, interrupts, positioning) not skill.
+  //   - At M+ 75th pct the mitigation starts; at 95th pct it caps at 60% reduction.
   const killRatio = mythicTotal > 0 ? mythicKills / mythicTotal : 0
   const performanceFail = hasParseLogs
     ? Math.max(0, 1 - avgParse / 100)
     : Math.max(0, 1 - mplusPct / 100)
-  const carryIndex = Math.round(killRatio * performanceFail * 100 * 1.5)
+
+  const mplusMitigation = clamp((mplusPct - 50) / 75, 0, 0.6)
+  const rawCarry = killRatio * performanceFail * 100 * 1.5
+  const carryIndex = Math.round(Math.max(0, rawCarry * (1 - mplusMitigation)))
 
   // --- Verdict ---
+  // Loosen thresholds slightly for progression profiles — they earned those kills.
   let verdict: 'INVITE' | 'BENCH' | 'DECLINE'
   let verdictLabel: 'BUY' | 'HOLD' | 'SELL'
 
-  if (overall >= 700 && pe <= 1.3 && carryIndex < 35) {
+  const carryThresholdInvite = isProgressionProfile ? 45 : 35
+  const carryThresholdBench = isProgressionProfile ? 70 : 60
+  const peThresholdInvite = isProgressionProfile ? 1.6 : 1.3
+
+  if (overall >= 700 && pe <= peThresholdInvite && carryIndex < carryThresholdInvite) {
     verdict = 'INVITE'; verdictLabel = 'BUY'
-  } else if (overall >= 450 && pe <= 2.0 && carryIndex < 60) {
+  } else if (overall >= 450 && pe <= 2.0 && carryIndex < carryThresholdBench) {
     verdict = 'BENCH'; verdictLabel = 'HOLD'
   } else {
     verdict = 'DECLINE'; verdictLabel = 'SELL'
   }
 
   const trend = changePercent > 2 ? 'up' : changePercent < -2 ? 'down' : 'neutral'
-
-  // --- Historical Points (simulated from available data) ---
-  const historicalPoints: HistoricalPoint[] = generateHistoricalPoints(overall, previousOverall, avgParse, mplusScore)
+  const historicalPoints = generateHistoricalPoints(overall, previousOverall, avgParse, mplusScore)
 
   return {
     overall,
     previousOverall,
     changePercent: Math.round(changePercent * 100) / 100,
-    components: { parseScore: Math.round(parseScore), mplusScore: Math.round(mplusPct), consistencyScore: Math.round(consistencyScore), activityScore: Math.round(activityScore) },
+    components: {
+      parseScore: Math.round(parseScore),
+      mplusScore: Math.round(mplusPct),
+      consistencyScore: Math.round(consistencyScore),
+      activityScore: Math.round(activityScore),
+    },
     pe,
     forwardPe,
     carryIndex: Math.min(100, carryIndex),
@@ -164,6 +168,7 @@ export function computeScore(
     avgParse: Math.round(avgParse),
     medianParse: Math.round(medianParse),
     consistency: Math.round(consistencyScore),
+    isProgressionProfile,
   }
 }
 

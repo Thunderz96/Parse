@@ -78,9 +78,13 @@ export default function MetricsGrid({ score, profile }: Props) {
     {
       label: 'Carry Index',
       value: `${score.carryIndex}/100`,
-      sub: score.carryIndex > 65 ? 'High carry risk' : score.carryIndex > 35 ? 'Moderate' : 'Self-sufficient',
+      sub: score.isProgressionProfile
+        ? 'Adjusted for prog role'
+        : score.carryIndex > 65 ? 'High carry risk' : score.carryIndex > 35 ? 'Moderate' : 'Self-sufficient',
       color: carryColor(score.carryIndex),
-      tooltip: 'Cross-references kill count vs parse consistency. High = lots of kills, low performance.',
+      tooltip: score.isProgressionProfile
+        ? 'M+ score significantly outpaces raid parses — carry index is reduced because this pattern fits a mechanic-focused progression raider, not a passenger.'
+        : 'Cross-references kill count vs parse consistency. High = lots of kills, low performance.',
     },
     {
       label: 'Avg Parse',

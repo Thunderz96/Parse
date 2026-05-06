@@ -75,6 +75,7 @@ export interface PlayerScore {
   avgParse: number
   medianParse: number
   consistency: number
+  isProgressionProfile: boolean
 }
 
 export interface HistoricalPoint {

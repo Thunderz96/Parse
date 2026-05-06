@@ -1,4 +1,5 @@
 import { ParseData } from './types'
+import { PlayerRole } from './roles'
 
 const TOKEN_URL = 'https://www.warcraftlogs.com/oauth/token'
 const API_URL = 'https://www.warcraftlogs.com/api/v2/client'
@@ -42,22 +43,13 @@ async function gql<T>(token: string, query: string, variables: Record<string, un
   return json.data as T
 }
 
+// Fetches both DPS and HPS rankings in one round-trip so we can pick the right one for each role
 const PARSES_QUERY = `
   query GetParses($name: String!, $serverSlug: String!, $serverRegion: String!) {
     characterData {
       character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
-        zoneRankings(metric: dps)
-      }
-    }
-  }
-`
-
-const RECENT_QUERY = `
-  query GetRecent($name: String!, $serverSlug: String!, $serverRegion: String!) {
-    characterData {
-      character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
-        recentReports: zoneRankings(metric: dps, difficulty: 5)
-        heroicRankings: zoneRankings(metric: dps, difficulty: 4)
+        dpsRankings: zoneRankings(metric: dps)
+        hpsRankings: zoneRankings(metric: hps)
       }
     }
   }
@@ -73,23 +65,21 @@ interface ZoneRanking {
     bestAmount: number
     medianAmount: number
     totalKills: number
-    fastestKill: number
-    lockedIn: boolean
   }>
 }
 
 interface CharacterData {
   character: {
-    zoneRankings: ZoneRanking
-    recentReports?: ZoneRanking
-    heroicRankings?: ZoneRanking
+    dpsRankings: ZoneRanking
+    hpsRankings: ZoneRanking
   } | null
 }
 
 export async function fetchWarcraftLogs(
   region: string,
   realm: string,
-  name: string
+  name: string,
+  role: PlayerRole = 'dps'
 ): Promise<{ parses: ParseData[]; avgParse: number; medianParse: number }> {
   const token = await getToken()
   if (!token) return { parses: [], avgParse: 0, medianParse: 0 }
@@ -97,16 +87,19 @@ export async function fetchWarcraftLogs(
   const serverSlug = realm.toLowerCase().replace(/\s+/g, '-').replace(/'/g, '')
 
   try {
-    const mythicData = await gql<{ characterData: CharacterData }>(token, PARSES_QUERY, {
+    const data = await gql<{ characterData: CharacterData }>(token, PARSES_QUERY, {
       name,
       serverSlug,
       serverRegion: region.toUpperCase(),
     })
 
-    const char = mythicData.characterData.character
+    const char = data.characterData.character
     if (!char) return { parses: [], avgParse: 0, medianParse: 0 }
 
-    const rankings = char.zoneRankings?.rankings ?? []
+    // Healers use HPS rankings; tanks and DPS use DPS rankings
+    const zone = role === 'healer' ? char.hpsRankings : char.dpsRankings
+
+    const rankings = zone?.rankings ?? []
     const parses: ParseData[] = rankings.map((r) => ({
       encounter: r.encounter.name,
       difficulty: 'Mythic',
@@ -115,11 +108,11 @@ export async function fetchWarcraftLogs(
       ilvl: 0,
       date: new Date().toISOString(),
       amount: r.bestAmount ?? 0,
-      type: 'dps',
+      type: role === 'healer' ? 'hps' : 'dps',
     }))
 
-    const avg = char.zoneRankings?.bestPerformanceAverage ?? 0
-    const median = char.zoneRankings?.medianPerformanceAverage ?? 0
+    const avg = zone?.bestPerformanceAverage ?? 0
+    const median = zone?.medianPerformanceAverage ?? 0
 
     return { parses, avgParse: avg, medianParse: median }
   } catch {

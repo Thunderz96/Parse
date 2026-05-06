@@ -1,0 +1,20 @@
+{
+  "name": "parsegg-discord-bot",
+  "version": "1.0.0",
+  "description": "ParseGG Discord bot — /parse slash command for WoW player analytics",
+  "main": "dist/bot.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/bot.js",
+    "dev": "ts-node bot.ts",
+    "register": "ts-node register-commands.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  }
+}

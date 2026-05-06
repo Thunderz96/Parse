@@ -1,3 +1,7 @@
+import { PlayerRole } from './roles'
+
+export type { PlayerRole }
+
 export interface PlayerProfile {
   name: string
   realm: string
@@ -64,6 +68,7 @@ export interface PlayerScore {
     consistencyScore: number
     activityScore: number
   }
+  role: PlayerRole
   pe: number
   forwardPe: number
   carryIndex: number

@@ -2,6 +2,7 @@ import { ParseData } from '@/lib/types'
 
 interface Props {
   parses: ParseData[]
+  role?: string
 }
 
 function pctColor(pct: number): string {
@@ -12,7 +13,8 @@ function pctColor(pct: number): string {
   return '#9d9d9d'
 }
 
-export default function ParseBreakdown({ parses }: Props) {
+export default function ParseBreakdown({ parses, role }: Props) {
+  const metric = role === 'healer' ? 'HPS' : 'DPS'
   if (!parses.length) {
     return (
       <div className="bg-[#131722] border border-[#2a2f45] rounded-xl p-5">
@@ -26,7 +28,7 @@ export default function ParseBreakdown({ parses }: Props) {
 
   return (
     <div className="bg-[#131722] border border-[#2a2f45] rounded-xl p-5">
-      <p className="text-sm font-semibold text-white mb-4">Mythic Parses</p>
+      <p className="text-sm font-semibold text-white mb-4">Mythic {metric} Parses</p>
       <div className="space-y-2.5">
         {parses.map((p) => (
           <div key={p.encounter} className="flex items-center gap-3">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { fetchRaiderIO } from '@/lib/raiderio'
 import { fetchWarcraftLogs } from '@/lib/warcraftlogs'
 import { computeScore } from '@/lib/scoring'
+import { getRole } from '@/lib/roles'
 import { FullPlayerData } from '@/lib/types'
 
 export async function GET(req: NextRequest) {
@@ -15,31 +16,23 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [profile, logsData] = await Promise.allSettled([
-      fetchRaiderIO(region, realm, name),
-      fetchWarcraftLogs(region, realm, name),
-    ])
-
-    if (profile.status === 'rejected') {
-      const msg = profile.reason?.message || 'Player not found'
-      if (msg.includes('404') || msg.includes('Could not find')) {
-        return NextResponse.json({ error: 'Player not found. Check name, realm, and region.' }, { status: 404 })
+    const playerProfile = await fetchRaiderIO(region, realm, name).catch((err) => {
+      const msg: string = err?.message || ''
+      if (msg.includes('404') || msg.includes('Could not find') || msg.includes('not found')) {
+        throw Object.assign(new Error('Player not found. Check name, realm, and region.'), { status: 404 })
       }
-      return NextResponse.json({ error: msg }, { status: 500 })
-    }
+      throw err
+    })
 
-    const playerProfile = profile.value
-    const { avgParse, medianParse, parses } =
-      logsData.status === 'fulfilled' ? logsData.value : { avgParse: 0, medianParse: 0, parses: [] }
-
+    const role = getRole(playerProfile.spec)
+    const { avgParse, medianParse, parses } = await fetchWarcraftLogs(region, realm, name, role)
     playerProfile.logs = parses
 
     const score = computeScore(playerProfile, avgParse, medianParse)
-
     const result: FullPlayerData = { profile: playerProfile, score }
     return NextResponse.json(result)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    const e = err as Error & { status?: number }
+    return NextResponse.json({ error: e.message || 'Unknown error' }, { status: e.status ?? 500 })
   }
 }

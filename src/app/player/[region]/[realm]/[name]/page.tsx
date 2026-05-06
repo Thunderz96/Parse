@@ -5,12 +5,15 @@ import { fetchRaiderIO } from '@/lib/raiderio'
 import { fetchWarcraftLogs } from '@/lib/warcraftlogs'
 import { computeScore } from '@/lib/scoring'
 import { generateSummary } from '@/lib/claude'
+import { getRole } from '@/lib/roles'
 import { FullPlayerData } from '@/lib/types'
+import { ROLE_LABELS, ROLE_COLORS, ROLE_BG } from '@/lib/roles'
 import PerformanceChart from '@/components/PerformanceChart'
 import MetricsGrid from '@/components/MetricsGrid'
 import VerdictBadge from '@/components/VerdictBadge'
 import AISummary from '@/components/AISummary'
 import ParseBreakdown from '@/components/ParseBreakdown'
+import WatchlistButton from '@/components/WatchlistButton'
 
 interface Props {
   params: Promise<{ region: string; realm: string; name: string }>
@@ -38,22 +41,18 @@ export default async function PlayerPage({ params }: Props) {
   let data: FullPlayerData
 
   try {
-    const [profile, logsData] = await Promise.allSettled([
-      fetchRaiderIO(region, decodeURIComponent(realm), decodeURIComponent(name)),
-      fetchWarcraftLogs(region, decodeURIComponent(realm), decodeURIComponent(name)),
-    ])
+    const playerProfile = await fetchRaiderIO(region, decodeURIComponent(realm), decodeURIComponent(name))
+      .catch((err) => {
+        const msg: string = err?.message || ''
+        if (msg.includes('404') || msg.includes('Could not find') || msg.includes('not found')) notFound()
+        throw err
+      })
 
-    if (profile.status === 'rejected') {
-      const msg = profile.reason?.message || ''
-      if (msg.includes('404') || msg.includes('Could not find') || msg.includes('not found')) {
-        notFound()
-      }
-      throw profile.reason
-    }
+    const role = getRole(playerProfile.spec)
+    const { avgParse, medianParse, parses } = await fetchWarcraftLogs(
+      region, decodeURIComponent(realm), decodeURIComponent(name), role
+    ).catch(() => ({ avgParse: 0, medianParse: 0, parses: [] }))
 
-    const playerProfile = profile.value
-    const { avgParse, medianParse, parses } =
-      logsData.status === 'fulfilled' ? logsData.value : { avgParse: 0, medianParse: 0, parses: [] }
     playerProfile.logs = parses
 
     const score = computeScore(playerProfile, avgParse, medianParse)
@@ -114,11 +113,17 @@ export default async function PlayerPage({ params }: Props) {
                   {decodeURIComponent(realm)} — {region.toUpperCase()}
                 </span>
               </div>
-              <p className="text-sm mb-2" style={{ color: classColor }}>
-                {profile.spec} {profile.class}
-              </p>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-sm" style={{ color: classColor }}>
+                  {profile.spec} {profile.class}
+                </p>
+                <span className={`text-xs font-semibold border rounded px-2 py-0.5 ${ROLE_BG[score.role]} ${ROLE_COLORS[score.role]}`}>
+                  {ROLE_LABELS[score.role]}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
                 <VerdictBadge verdict={score.verdict} label={score.verdictLabel} size="sm" />
+                <WatchlistButton profile={profile} />
                 {profile.profileUrl && (
                   <a
                     href={profile.profileUrl}
@@ -264,7 +269,7 @@ export default async function PlayerPage({ params }: Props) {
             </div>
           )}
 
-          <ParseBreakdown parses={profile.logs} />
+          <ParseBreakdown parses={profile.logs} role={score.role} />
 
           {/* Last updated */}
           <div className="flex items-center gap-1.5 text-xs text-[#4e5263] justify-center">

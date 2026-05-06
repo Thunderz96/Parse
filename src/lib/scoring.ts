@@ -1,4 +1,5 @@
 import { PlayerProfile, PlayerScore, HistoricalPoint } from './types'
+import { PlayerRole, getRole } from './roles'
 
 const ILVL_PERCENTILES: Array<{ ilvl: number; pct: number }> = [
   { ilvl: 580, pct: 10 },
@@ -48,11 +49,37 @@ function clamp(v: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, v))
 }
 
+interface RoleWeights {
+  parse: number
+  mplus: number
+  consistency: number
+  activity: number
+  // Carry index sensitivity multiplier — tanks/healers are hard to evaluate via parse alone
+  carryMultiplier: number
+}
+
+function getWeights(role: PlayerRole, hasParseLogs: boolean, isProgressionProfile: boolean): RoleWeights {
+  if (role === 'tank') {
+    // Tanks: M+ is the dominant signal — DPS parses are nearly meaningless for tanks
+    return { parse: hasParseLogs ? 0.10 : 0.05, mplus: 0.65, consistency: 0.15, activity: 0.10, carryMultiplier: 0.3 }
+  }
+  if (role === 'healer') {
+    // Healers: HPS parses are valid but M+ still a strong solo-skill indicator
+    return { parse: hasParseLogs ? 0.35 : 0.15, mplus: 0.45, consistency: 0.10, activity: 0.10, carryMultiplier: 0.5 }
+  }
+  // DPS — shift toward M+ when progression profile detected
+  if (isProgressionProfile) {
+    return { parse: hasParseLogs ? 0.25 : 0.20, mplus: 0.50, consistency: 0.15, activity: 0.10, carryMultiplier: 0.6 }
+  }
+  return { parse: hasParseLogs ? 0.40 : 0.20, mplus: 0.35, consistency: 0.15, activity: 0.10, carryMultiplier: 1.0 }
+}
+
 export function computeScore(
   profile: PlayerProfile,
   avgParse: number,
   medianParse: number
 ): PlayerScore {
+  const role: PlayerRole = getRole(profile.spec)
   const mplusScore = profile.mythicPlus.score
   const previousMplus = profile.mythicPlus.previousScore
   const mplusPct = mplusPercentile(mplusScore)
@@ -73,35 +100,31 @@ export function computeScore(
     Math.min(100, (mythicKills / Math.max(mythicTotal, 1)) * 50 + (mplusScore > 0 ? 50 : 0))
   )
 
-  // When a player has strong M+ but lower raid parses, shift weight toward M+.
-  // M+ is harder to fake — it's a better individual skill signal for progression raiders
-  // who are assigned to handle mechanics rather than optimize DPS.
+  // Progression profile: M+ noticeably outpaces raid parses (mechanic-focused raider)
   const parseVsMplusGap = hasParseLogs ? Math.max(0, mplusPct - parseScore) : 0
-  const isProgressionProfile = parseVsMplusGap > 20 // M+ notably outpaces raid parses
+  const isProgressionProfile = role === 'dps' && parseVsMplusGap > 20
 
-  const parseWeight = hasParseLogs ? (isProgressionProfile ? 0.25 : 0.40) : 0.20
-  const mplusWeight = hasParseLogs ? (isProgressionProfile ? 0.50 : 0.35) : 0.50
-  const consistencyWeight = 0.15
-  const activityWeight = 0.10
+  const w = getWeights(role, hasParseLogs, isProgressionProfile)
 
   const rawScore =
-    parseScore * parseWeight +
-    mplusPct * mplusWeight +
-    consistencyScore * consistencyWeight +
-    activityScore * activityWeight
+    parseScore * w.parse +
+    mplusPct * w.mplus +
+    consistencyScore * w.consistency +
+    activityScore * w.activity
 
   const overall = Math.round(rawScore * 10)
 
   const prevMplusPct = mplusPercentile(previousMplus)
-  const prevRaw = parseScore * parseWeight + prevMplusPct * mplusWeight + consistencyScore * consistencyWeight + activityScore * activityWeight
+  const prevRaw = parseScore * w.parse + prevMplusPct * w.mplus + consistencyScore * w.consistency + activityScore * w.activity
   const previousOverall = Math.round(prevRaw * 10)
   const changePercent = previousOverall > 0 ? ((overall - previousOverall) / previousOverall) * 100 : 0
 
   // --- P/E Ratio ---
   const ilvlPct = ilvlPercentile(profile.itemLevel)
-  // Use the better of (raid parses, M+) as the earnings figure so a progression
-  // raider with high M+ isn't punished for mechanic-focused raid assignments.
-  const effectivePerformance = hasParseLogs
+  // Tanks & healers: use M+ as the primary earnings signal since DPS parses don't reflect their role
+  const effectivePerformance = role !== 'dps'
+    ? Math.max(mplusPct, parseScore * 0.5)
+    : hasParseLogs
     ? Math.max(avgParse * 0.7 + mplusPct * 0.3, mplusPct * 0.8)
     : mplusPct
 
@@ -112,29 +135,23 @@ export function computeScore(
   const improvementRate = (mplusScore - previousMplus) / Math.max(previousMplus, 1)
   const forwardPe = Math.round(pe * (1 - improvementRate * 0.5) * 100) / 100
 
-  // --- Carry Index (0-100) ---
-  // Core signal: high kill count + poor performance = carried.
-  // However, M+ score acts as a hard skill floor:
-  //   - A player doing high M+ clearly has mechanical ability; low raid parses
-  //     likely reflect role assignment (soaks, interrupts, positioning) not skill.
-  //   - At M+ 75th pct the mitigation starts; at 95th pct it caps at 60% reduction.
+  // --- Carry Index ---
   const killRatio = mythicTotal > 0 ? mythicKills / mythicTotal : 0
   const performanceFail = hasParseLogs
     ? Math.max(0, 1 - avgParse / 100)
     : Math.max(0, 1 - mplusPct / 100)
 
   const mplusMitigation = clamp((mplusPct - 50) / 75, 0, 0.6)
-  const rawCarry = killRatio * performanceFail * 100 * 1.5
+  const rawCarry = killRatio * performanceFail * 100 * 1.5 * w.carryMultiplier
   const carryIndex = Math.round(Math.max(0, rawCarry * (1 - mplusMitigation)))
 
   // --- Verdict ---
-  // Loosen thresholds slightly for progression profiles — they earned those kills.
+  const carryThresholdInvite = role !== 'dps' ? 55 : isProgressionProfile ? 45 : 35
+  const carryThresholdBench = role !== 'dps' ? 75 : isProgressionProfile ? 70 : 60
+  const peThresholdInvite = role === 'tank' ? 2.0 : isProgressionProfile ? 1.6 : 1.3
+
   let verdict: 'INVITE' | 'BENCH' | 'DECLINE'
   let verdictLabel: 'BUY' | 'HOLD' | 'SELL'
-
-  const carryThresholdInvite = isProgressionProfile ? 45 : 35
-  const carryThresholdBench = isProgressionProfile ? 70 : 60
-  const peThresholdInvite = isProgressionProfile ? 1.6 : 1.3
 
   if (overall >= 700 && pe <= peThresholdInvite && carryIndex < carryThresholdInvite) {
     verdict = 'INVITE'; verdictLabel = 'BUY'
@@ -157,6 +174,7 @@ export function computeScore(
       consistencyScore: Math.round(consistencyScore),
       activityScore: Math.round(activityScore),
     },
+    role,
     pe,
     forwardPe,
     carryIndex: Math.min(100, carryIndex),

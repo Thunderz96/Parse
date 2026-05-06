@@ -8,7 +8,7 @@ import {
 } from 'discord.js'
 
 const token = process.env.DISCORD_TOKEN
-const baseUrl = process.env.PARSEGG_BASE_URL || 'http://localhost:3000'
+const baseUrl = (process.env.PARSEGG_BASE_URL || 'http://127.0.0.1:3000').replace('localhost', '127.0.0.1')
 
 if (!token) {
   console.error('Missing DISCORD_TOKEN — copy discord-bot/.env.example to .env and fill it in')
@@ -43,7 +43,15 @@ const CLASS_EMOJIS: Record<string, string> = {
 
 async function fetchPlayer(name: string, realm: string, region: string): Promise<PlayerData> {
   const url = `${baseUrl}/api/player?region=${region}&realm=${encodeURIComponent(realm)}&name=${encodeURIComponent(name)}`
-  const res = await fetch(url)
+  let res: Response
+  try {
+    res = await fetch(url)
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `Cannot reach ParseGG at ${baseUrl} — is \`npm run dev\` running?\n> ${cause}`
+    )
+  }
   const json = await res.json() as PlayerData & { error?: string }
   if (!res.ok || json.error) throw new Error(json.error || 'Player not found')
   return json

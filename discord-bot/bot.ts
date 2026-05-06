@@ -127,7 +127,7 @@ async function handleParse(interaction: ChatInputCommandInteraction) {
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] })
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`ParseGG bot ready — logged in as ${client.user?.tag}`)
 })
 

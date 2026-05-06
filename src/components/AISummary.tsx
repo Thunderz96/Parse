@@ -1,20 +1,21 @@
 'use client'
 
 import { useState } from 'react'
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Sparkles, Loader2, Zap } from 'lucide-react'
 import { FullPlayerData } from '@/lib/types'
 
 interface Props {
   data: FullPlayerData
-  initialSummary?: string
+  fallbackSummary: string
 }
 
-export default function AISummary({ data, initialSummary }: Props) {
-  const [summary, setSummary] = useState(initialSummary || '')
+export default function AISummary({ data, fallbackSummary }: Props) {
+  const [summary, setSummary] = useState(fallbackSummary)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [isAI, setIsAI] = useState(false)
 
-  async function generate() {
+  async function generateAI() {
     setLoading(true)
     setError('')
     try {
@@ -26,8 +27,16 @@ export default function AISummary({ data, initialSummary }: Props) {
       const json = await res.json()
       if (json.error) throw new Error(json.error)
       setSummary(json.summary)
+      setIsAI(true)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to generate summary')
+      const msg = e instanceof Error ? e.message : 'Failed'
+      if (msg.includes('credit') || msg.includes('balance') || msg.includes('billing')) {
+        setError('No API credits — add credits at console.anthropic.com/billing')
+      } else if (msg.includes('API key') || msg.includes('authentication')) {
+        setError('Invalid API key — check ANTHROPIC_API_KEY in .env.local')
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -38,20 +47,25 @@ export default function AISummary({ data, initialSummary }: Props) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-[#a335ee]" />
-          <span className="text-sm font-semibold text-white">AI Analyst Report</span>
+          <span className="text-sm font-semibold text-white">Analyst Report</span>
+          {isAI && (
+            <span className="text-xs bg-[#1c0a2e] border border-[#a335ee] text-[#a335ee] rounded px-1.5 py-0.5">
+              AI
+            </span>
+          )}
         </div>
-        {!summary && !loading && (
+        {!isAI && !loading && (
           <button
-            onClick={generate}
-            className="flex items-center gap-1.5 text-xs bg-[#1c2030] hover:bg-[#242838] border border-[#2a2f45] rounded-lg px-3 py-1.5 text-[#787b86] hover:text-white transition-colors"
+            onClick={generateAI}
+            className="flex items-center gap-1.5 text-xs bg-[#1c0a2e] hover:bg-[#2a1040] border border-[#a335ee33] hover:border-[#a335ee] rounded-lg px-3 py-1.5 text-[#a335ee] transition-colors"
           >
-            <Sparkles className="w-3 h-3" />
-            Generate
+            <Zap className="w-3 h-3" />
+            Upgrade to AI
           </button>
         )}
-        {summary && !loading && (
+        {isAI && !loading && (
           <button
-            onClick={generate}
+            onClick={generateAI}
             className="text-xs text-[#4e5263] hover:text-[#787b86] transition-colors"
           >
             Regenerate
@@ -60,24 +74,20 @@ export default function AISummary({ data, initialSummary }: Props) {
       </div>
 
       {loading && (
-        <div className="flex items-center gap-2 text-sm text-[#787b86] py-4">
+        <div className="flex items-center gap-2 text-sm text-[#787b86] py-2">
           <Loader2 className="w-4 h-4 animate-spin" />
-          <span>Generating analyst report...</span>
+          <span>Generating AI analyst report...</span>
         </div>
       )}
 
       {error && (
-        <p className="text-xs text-[#ef5350] py-2">{error}</p>
+        <div className="mb-3 text-xs text-[#ef5350] bg-[#1f0d0d] border border-[#ef535033] rounded-lg px-3 py-2">
+          {error}
+        </div>
       )}
 
       {!loading && summary && (
         <p className="text-sm text-[#d1d4dc] leading-relaxed">{summary}</p>
-      )}
-
-      {!loading && !summary && !error && (
-        <p className="text-xs text-[#4e5263] py-2">
-          Click Generate to get a Claude-powered analyst summary of this player&apos;s performance outlook.
-        </p>
       )}
     </div>
   )

@@ -4,6 +4,7 @@ import { ArrowLeft, TrendingUp, TrendingDown, Minus, ExternalLink, RefreshCw } f
 import { fetchRaiderIO } from '@/lib/raiderio'
 import { fetchWarcraftLogs } from '@/lib/warcraftlogs'
 import { computeScore } from '@/lib/scoring'
+import { generateSummary } from '@/lib/claude'
 import { FullPlayerData } from '@/lib/types'
 import PerformanceChart from '@/components/PerformanceChart'
 import MetricsGrid from '@/components/MetricsGrid'
@@ -57,6 +58,7 @@ export default async function PlayerPage({ params }: Props) {
 
     const score = computeScore(playerProfile, avgParse, medianParse)
     data = { profile: playerProfile, score }
+    data.summary = await generateSummary(data)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     if (message.includes('404') || message.includes('not found')) notFound()
@@ -163,7 +165,7 @@ export default async function PlayerPage({ params }: Props) {
         <div className="lg:col-span-2 space-y-4">
           <PerformanceChart points={score.historicalPoints} trend={score.trend} />
           <MetricsGrid score={score} profile={profile} />
-          <AISummary data={data} />
+          <AISummary data={data} fallbackSummary={data.summary ?? ''} />
         </div>
 
         {/* Right column (1/3 width) */}

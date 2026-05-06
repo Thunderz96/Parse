@@ -36,7 +36,7 @@ Verdict: ${score.verdict}
 Write the analyst report now. Do not use bullet points. Prose only. Keep it under 120 words.`
 
   const msg = await ai.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
     messages: [{ role: 'user', content: prompt }],
   })

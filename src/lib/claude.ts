@@ -35,13 +35,16 @@ Verdict: ${score.verdict}
 
 Write the analyst report now. Do not use bullet points. Prose only. Keep it under 120 words.`
 
-  const msg = await ai.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  return msg.content[0].type === 'text' ? msg.content[0].text : generateFallbackSummary(data)
+  try {
+    const msg = await ai.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    return msg.content[0].type === 'text' ? msg.content[0].text : generateFallbackSummary(data)
+  } catch {
+    return generateFallbackSummary(data)
+  }
 }
 
 function generateFallbackSummary(data: FullPlayerData): string {

@@ -3,6 +3,7 @@ import { fetchRaiderIO } from '@/lib/raiderio'
 import { fetchWarcraftLogs } from '@/lib/warcraftlogs'
 import { computeScore } from '@/lib/scoring'
 import { getRole } from '@/lib/roles'
+import { recordSnapshot } from '@/lib/history'
 import { FullPlayerData } from '@/lib/types'
 
 export async function GET(req: NextRequest) {
@@ -29,6 +30,10 @@ export async function GET(req: NextRequest) {
     playerProfile.logs = parses
 
     const score = computeScore(playerProfile, avgParse, medianParse)
+
+    // Fire-and-forget — never block the response
+    recordSnapshot(playerProfile, score)
+
     const result: FullPlayerData = { profile: playerProfile, score }
     return NextResponse.json(result)
   } catch (err) {

@@ -1,0 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Written every time a player is looked up — powers the historical chart
+model PlayerSnapshot {
+  id          String   @id @default(cuid())
+  region      String
+  realm       String
+  name        String
+  playerScore Int
+  peRatio     Float
+  forwardPe   Float
+  carryIndex  Int
+  avgParse    Int
+  mplusScore  Float
+  itemLevel   Int
+  verdict     String
+  role        String
+  createdAt   DateTime @default(now())
+
+  @@index([region, realm, name, createdAt])
+}
+
+// Discord watchlist for Phase 5 cron alerts
+model WatchlistEntry {
+  id               String   @id @default(cuid())
+  discordUserId    String
+  discordChannelId String
+  region           String
+  realm            String
+  name             String
+  lastScore        Int      @default(0)
+  lastCheckedAt    DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  @@unique([discordUserId, region, realm, name])
+  @@index([discordUserId])
+}

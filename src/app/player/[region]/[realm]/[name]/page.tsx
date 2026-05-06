@@ -6,6 +6,7 @@ import { fetchWarcraftLogs } from '@/lib/warcraftlogs'
 import { computeScore } from '@/lib/scoring'
 import { generateSummary } from '@/lib/claude'
 import { getRole } from '@/lib/roles'
+import { recordSnapshot, getHistory } from '@/lib/history'
 import { FullPlayerData } from '@/lib/types'
 import { ROLE_LABELS, ROLE_COLORS, ROLE_BG } from '@/lib/roles'
 import PerformanceChart from '@/components/PerformanceChart'
@@ -57,7 +58,18 @@ export default async function PlayerPage({ params }: Props) {
 
     const score = computeScore(playerProfile, avgParse, medianParse)
     data = { profile: playerProfile, score }
-    data.summary = await generateSummary(data)
+
+    // Parallel: record snapshot + generate summary + fetch history
+    const [, , history] = await Promise.all([
+      recordSnapshot(playerProfile, score),
+      generateSummary(data).then((s) => { data.summary = s }),
+      getHistory(region, decodeURIComponent(realm), decodeURIComponent(name), 90),
+    ])
+
+    // Use real DB history if available, fall back to simulated
+    if (history.length >= 2) {
+      data.score.historicalPoints = history
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     if (message.includes('404') || message.includes('not found')) notFound()
